@@ -1,0 +1,23 @@
+# 环境配置（含敏感信息，勿提交）
+config.env
+
+# Go 构建产物
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/bin/
+/dist/
+
+# 测试与覆盖率
+*.test
+*.out
+coverage.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
