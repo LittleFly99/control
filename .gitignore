@@ -9,6 +9,7 @@ config.env
 *.dylib
 /bin/
 /dist/
+control
 
 # 测试与覆盖率
 *.test

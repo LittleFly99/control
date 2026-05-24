@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>游戏页面</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; background: #0b1020; color: #eee; }
+    h1 { font-size: 1.25rem; margin-bottom: 8px; }
+    #status { color: #8fd; margin-bottom: 16px; }
+    #log { background: #1a2030; border-radius: 8px; padding: 12px; height: 320px; overflow: auto; font: 12px/1.5 monospace; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>游戏页面</h1>
+  <div id="status">连接中…</div>
+  <div id="log"></div>
+
+  <script>
+    const gameId = {{if .game_id}}{{.game_id}}{{else}}0{{end}};
+
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('log');
+
+    function log(msg) {
+      logEl.textContent += msg + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function connect() {
+      const qs = new URLSearchParams({ type: 'game' });
+      if (gameId) qs.set('game_id', String(gameId));
+      const ws = new WebSocket((location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws?' + qs);
+
+      ws.onopen = () => {
+        statusEl.textContent = gameId ? '已连接 · 游戏 #' + gameId : '已连接 · 等待游戏';
+      };
+      ws.onmessage = (e) => log(e.data);
+      ws.onclose = () => {
+        statusEl.textContent = '连接断开，3 秒后重连…';
+        setTimeout(connect, 3000);
+      };
+      ws.onerror = () => statusEl.textContent = '连接错误';
+    }
+
+    connect();
+  </script>
+</body>
+</html>

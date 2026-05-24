@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -17,7 +16,6 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/websocket"
-	"github.com/joho/godotenv"
 )
 
 // 数据库配置
@@ -1655,6 +1653,14 @@ func (c *Client) handleStartGame(message Message) {
 		}
 	}
 	c.Hub.mutex.RUnlock()
+
+	if gameType == 1 && gameID > 0 {
+		overlaySec := 8
+		if data, ok := message.Data.(map[string]interface{}); ok {
+			overlaySec = extractOverlayDurationSec(data)
+		}
+		go notifyJiubaOverlaySessionStart(gameID, gameType, overlaySec)
+	}
 }
 
 // 处理结束游戏通信
@@ -1704,6 +1710,11 @@ func (c *Client) handleEndGameCommunication(message Message) {
 		}
 	}
 	c.Hub.mutex.RUnlock()
+
+	gameID := int(c.GameID)
+	if gameType == 1 && gameID > 0 {
+		go notifyJiubaOverlaySessionEnd(gameID)
+	}
 }
 
 // 处理公示结果
@@ -1975,18 +1986,23 @@ func handleWebSocket(hub *Hub, c *gin.Context) {
 
 	var gameID int
 	if clientType == "game" || clientType == "control" {
-		// 游戏客户端和控制台客户端都自动获取最新的未完成游戏
-		latestGame, err := getLatestUnfinishedGame()
-		if err != nil {
-			log.Printf("获取最新未完成游戏失败: %v，客户端将继续连接等待游戏开始", err)
-			// 不关闭连接，设置gameID为0，表示暂时没有进行中的游戏
-			gameID = 0
-		} else {
-			gameID = latestGame.ID
-			log.Printf("%s客户端连接到最新游戏: ID=%d", clientType, gameID)
+		if gameIDStr != "" {
+			if id, err := strconv.Atoi(gameIDStr); err == nil && id > 0 {
+				gameID = id
+				log.Printf("%s客户端连接到指定游戏: ID=%d", clientType, gameID)
+			}
+		}
+		if gameID <= 0 {
+			latestGame, err := getLatestUnfinishedGame()
+			if err != nil {
+				log.Printf("获取最新未完成游戏失败: %v，客户端将继续连接等待游戏开始", err)
+				gameID = 0
+			} else {
+				gameID = latestGame.ID
+				log.Printf("%s客户端连接到最新游戏: ID=%d", clientType, gameID)
+			}
 		}
 	} else {
-		// 其他类型客户端使用提供的game_id
 		gameID, _ = strconv.Atoi(gameIDStr)
 	}
 
@@ -2118,10 +2134,7 @@ func main() {
 	// 初始化随机数种子
 	rand.Seed(time.Now().UnixNano())
 
-	// 加载环境变量
-	if err := godotenv.Load("config.env"); err != nil {
-		log.Println("未找到config.env文件")
-	}
+	loadAppEnv()
 
 	// 初始化数据库
 	if err := initDatabase(); err != nil {
@@ -2168,6 +2181,9 @@ func main() {
 	// API路由
 	r.GET("/api/game/:id", handleGetGameInfoAPI)
 	r.POST("/api/signup/notify", handleSignupNotifyAPI)
+	r.POST("/api/game_overlay/broadcast", func(c *gin.Context) {
+		handleGameOverlayBroadcastJSON(hub, c)
+	})
 
 	// 页面路由
 	r.GET("/control", func(c *gin.Context) {
@@ -2199,467 +2215,21 @@ func main() {
 		c.HTML(http.StatusOK, "game.html", gin.H{})
 	})
 
+	r.GET("/game/:game_id", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "game.html", gin.H{
+			"game_id": c.Param("game_id"),
+		})
+	})
+
 	// 启动服务器
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8061"
 	}
 
-	log.Printf("WebSocket服务启动在端口 %s", port)
+	log.Printf("WebSocket服务启动在环境=%s 端口=%s", appEnv(), port)
 	log.Fatal(r.Run(":" + port))
 }
-
-// 数据库连接
-var db *sql.DB
-
-// 初始化数据库连接
-func initDatabase() error {
-	host := getEnv("DB_HOST", "127.0.0.1")
-	port := getEnv("DB_PORT", "3306")
-	user := getEnv("DB_USER", "bar_new")
-	password := getEnv("DB_PASSWORD", "Ba7LxFLjPmX622LF")
-	dbName := getEnv("DB_NAME", "bar_new")
-
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		user, password, host, port, dbName)
-
-	var err error
-	db, err = sql.Open("mysql", dsn)
-	if err != nil {
-		return fmt.Errorf("连接数据库失败: %v", err)
-	}
-
-	// 测试连接
-	if err := db.Ping(); err != nil {
-		return fmt.Errorf("数据库连接测试失败: %v", err)
-	}
-
-	// 设置连接池参数
-	db.SetMaxOpenConns(100)
-	db.SetMaxIdleConns(10)
-	db.SetConnMaxLifetime(time.Hour)
-
-	log.Println("数据库连接成功")
-	return nil
-}
-
-// 获取环境变量
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// 游戏记录结构
-type GameRecord struct {
-	ID         int       `json:"id"`
-	TopicID    int       `json:"topic_id"`
-	Link       string    `json:"link"`
-	Status     int       `json:"status"`
-	Content    string    `json:"content"`
-	CreateTime time.Time `json:"create_time"`
-	StartTime  int       `json:"start_time"`
-	IsCustom   int       `json:"is_custom"`
-}
-
-// 游戏主题结构
-type GameTopic struct {
-	ID      int    `json:"id"`
-	Name    string `json:"name"`
-	Content string `json:"content"`
-	Status  int    `json:"status"`
-}
-
-// 报名记录结构
-type SignupRecord struct {
-	ID       int    `json:"id"`
-	GameID   int    `json:"game_id"`
-	Table    string `json:"table"`
-	ClientID int    `json:"client_id"`
-}
-
-// 机器桌号映射记录结构
-type MachineTableRecord struct {
-	ID        int    `json:"id"`
-	MachineSN string `json:"machine_sn"`
-	TableSN   string `json:"table_sn"`
-	ImageURL  string `json:"image_url"`
-	Sort      int    `json:"sort"`
-	Remark    string `json:"remark"`
-	Qrcode    string `json:"qrcode"`
-	EditUID   int    `json:"edit_uid"`
-	Type      int    `json:"type"`
-	MaxUser   int    `json:"max_user"`
-}
-
-// 消息记录结构
-type MessageRecord struct {
-	ID         int       `json:"id"`
-	Table      string    `json:"table"`
-	Content    string    `json:"content"`
-	CreateTime time.Time `json:"create_time"`
-}
-
-// 消息统计结构
-type MessageStats struct {
-	Table        string `json:"table"`
-	MessageCount int    `json:"message_count"`
-}
-
-// 注意：已移除每日只广播一次的限制，现在每3秒都会广播第一个消息桌号
-
-// 获取游戏信息
-func getGameInfo(gameID int) (*GameRecord, error) {
-	query := "SELECT id, topic_id, link, status, content, create_time, start_time, is_custom FROM ls_game WHERE id = ?"
-
-	var game GameRecord
-	err := db.QueryRow(query, gameID).Scan(
-		&game.ID, &game.TopicID, &game.Link, &game.Status, &game.Content, &game.CreateTime, &game.StartTime, &game.IsCustom,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &game, nil
-}
-
-// 获取最新的未完成游戏
-func getLatestUnfinishedGame() (*GameRecord, error) {
-	query := "SELECT id, topic_id, link, status, content, create_time, start_time, is_custom FROM ls_game WHERE status IN (0, 1, 2, 3) ORDER BY id DESC LIMIT 1"
-
-	var game GameRecord
-	err := db.QueryRow(query).Scan(
-		&game.ID, &game.TopicID, &game.Link, &game.Status, &game.Content, &game.CreateTime, &game.StartTime, &game.IsCustom,
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &game, nil
-}
-
-// 更新游戏状态
-func updateGameStatus(gameID int, status int) error {
-	query := "UPDATE ls_game SET status = ? WHERE id = ?"
-	_, err := db.Exec(query, status, gameID)
-	return err
-}
-
-// 更新游戏状态和开始时间
-func updateGameStatusAndStartTime(gameID int, status int, startTime int) error {
-	query := "UPDATE ls_game SET status = ?, start_time = ? WHERE id = ?"
-	_, err := db.Exec(query, status, startTime, gameID)
-	return err
-}
-
-// 计算剩余时间（返回分钟:秒格式的字符串）
-func calculateRemainingTime(endTime int) string {
-	now := int(time.Now().Unix())
-	remaining := endTime - now
-
-	if remaining <= 0 {
-		return ""
-	}
-
-	minutes := remaining / 60
-	seconds := remaining % 60
-
-	return fmt.Sprintf("%02d:%02d", minutes, seconds)
-}
-
-// 更新游戏内容
-func updateGameContent(gameID int, content string) error {
-	query := "UPDATE ls_game SET content = ? WHERE id = ?"
-	_, err := db.Exec(query, content, gameID)
-	return err
-}
-
-// 添加报名记录
-func addSignupRecord(gameID int, table string, clientID int) error {
-	query := "INSERT INTO ls_game_sign (game_id, `table`, client_id) VALUES (?, ?, ?)"
-	_, err := db.Exec(query, gameID, table, clientID)
-	return err
-}
-
-// 获取报名列表
-func getSignupList(gameID int) ([]SignupRecord, error) {
-	query := "SELECT id, game_id, `table`, client_id FROM ls_game_sign WHERE game_id = ? ORDER BY id ASC"
-
-	rows, err := db.Query(query, gameID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var signups []SignupRecord
-	for rows.Next() {
-		var signup SignupRecord
-		err := rows.Scan(&signup.ID, &signup.GameID, &signup.Table, &signup.ClientID)
-		if err != nil {
-			return nil, err
-		}
-		signups = append(signups, signup)
-	}
-
-	return signups, nil
-}
-
-// 删除报名记录
-func deleteSignupRecord(id int) error {
-	query := "DELETE FROM ls_game_sign WHERE id = ?"
-	_, err := db.Exec(query, id)
-	return err
-}
-
-// 根据游戏ID和桌号删除报名记录
-func deleteSignupByTableAndGame(gameID int, table string) error {
-	query := "DELETE FROM ls_game_sign WHERE game_id = ? AND `table` = ?"
-	_, err := db.Exec(query, gameID, table)
-	return err
-}
-
-// 清空游戏报名记录
-func clearGameSignups(gameID int) error {
-	query := "DELETE FROM ls_game_sign WHERE game_id = ?"
-	_, err := db.Exec(query, gameID)
-	return err
-}
-
-// 游戏内容结构
-type GameContent struct {
-	Table1            string `json:"table1"`
-	Table2            string `json:"table2"`
-	Winner            string `json:"winner"`
-	GoodsID           string `json:"goods_id"`
-	PrizeName         string `json:"prize_name"`
-	GameType          string `json:"game_type"`
-	Rounds            int    `json:"rounds"`
-	Result            string `json:"result"`
-	GoodsName         string `json:"goods_name"`
-	GoodsPrice        string `json:"goods_price"`
-	PrizeSelectedTime string `json:"prize_selected_time"`
-}
-
-// 更新游戏内容（JSON格式）
-func updateGameContentJSON(gameID int, content GameContent) error {
-	contentJSON, err := json.Marshal(content)
-	if err != nil {
-		return err
-	}
-
-	return updateGameContent(gameID, string(contentJSON))
-}
-
-// 获取游戏内容
-func getGameContent(gameID int) (*GameContent, error) {
-	game, err := getGameInfo(gameID)
-	if err != nil {
-		return nil, err
-	}
-
-	var content GameContent
-	if game.Content != "" {
-		err = json.Unmarshal([]byte(game.Content), &content)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return &content, nil
-}
-
-// 根据主题ID获取游戏主题信息
-func getGameTopicByID(topicID int) (*GameTopic, error) {
-	query := "SELECT id, name, content, status FROM ls_game_topic WHERE id = ? LIMIT 1"
-
-	var topic GameTopic
-	err := db.QueryRow(query, topicID).Scan(&topic.ID, &topic.Name, &topic.Content, &topic.Status)
-	if err != nil {
-		return nil, err
-	}
-
-	return &topic, nil
-}
-
-// 根据机器编号获取桌号
-func getTableByMachineSN(machineSN string) (string, error) {
-	query := "SELECT table_sn FROM ls_machine_table WHERE machine_sn = ? LIMIT 1"
-
-	var tableSN string
-	err := db.QueryRow(query, machineSN).Scan(&tableSN)
-
-	if err != nil {
-		return "", err
-	}
-
-	return tableSN, nil
-}
-
-// 关闭数据库连接
-func closeDatabase() {
-	if db != nil {
-		db.Close()
-	}
-}
-
-// 获取游戏开始后第一个发送并收到小纸条的桌号
-func getFirstMessageTableInGame() (string, error) {
-	// 检查游戏是否激活
-	if !firstMessageGameState.isActive {
-		return "", fmt.Errorf("游戏未激活")
-	}
-
-	// 使用游戏开始时间和结束时间作为查询范围
-	startTime := firstMessageGameState.startTime
-	endTime := firstMessageGameState.endTime
-
-	// 将时间转换为字符串格式，确保与数据库格式一致
-	startTimeStr := startTime.Format("2006-01-02 15:04:05")
-	endTimeStr := endTime.Format("2006-01-02 15:04:05")
-
-	// 第一步：查询在5分钟内发送过小纸条的桌号
-	senderQuery := `SELECT DISTINCT from_table_sn FROM ls_chat_msg 
-					WHERE created_at >= ? AND created_at < ?`
-
-	senderRows, err := db.Query(senderQuery, startTimeStr, endTimeStr)
-	if err != nil {
-		return "", err
-	}
-	defer senderRows.Close()
-
-	// 收集所有发送过小纸条的桌号
-	var senderTables []string
-	for senderRows.Next() {
-		var table string
-		if err := senderRows.Scan(&table); err != nil {
-			return "", err
-		}
-		senderTables = append(senderTables, table)
-	}
-
-	// 如果没有发送者，直接返回空
-	if len(senderTables) == 0 {
-		return "", nil
-	}
-
-	// 第二步：查询接收小纸条的记录，从这些发送者中找接收时间最早的
-	receiverQuery := `SELECT to_table_sn FROM ls_chat_msg 
-					  WHERE to_table_sn IN (` + fmt.Sprintf("'%s'", strings.Join(senderTables, "','")) + `)
-					  AND is_recv = 1 AND created_at >= ? AND created_at < ?
-					  ORDER BY created_at ASC LIMIT 1`
-
-	var receiverTable string
-	err = db.QueryRow(receiverQuery, startTimeStr, endTimeStr).Scan(&receiverTable)
-	if err != nil {
-		return "", err
-	}
-
-	return receiverTable, nil
-}
-
-// 获取当天所有桌的消息数量统计
-func getMessageStatsToday() ([]MessageStats, error) {
-	// 获取当天中午12点到次日中午12点的时间范围
-	now := time.Now()
-	today := now.Format("2006-01-02")
-
-	// 当天中午12点
-	startTime, err := time.Parse("2006-01-02 15:04:05", today+" 12:00:00")
-	if err != nil {
-		return nil, err
-	}
-
-	// 次日中午12点
-	endTime := startTime.Add(24 * time.Hour)
-
-	query := `SELECT to_table_sn, COUNT(*) as message_count 
-			  FROM ls_chat_msg 
-			  WHERE created_at >= ? AND created_at < ? 
-			  GROUP BY to_table_sn 
-			  ORDER BY message_count DESC`
-
-	// 将时间转换为字符串格式，确保与数据库格式一致
-	startTimeStr := startTime.Format("2006-01-02 15:04:05")
-	endTimeStr := endTime.Format("2006-01-02 15:04:05")
-
-	rows, err := db.Query(query, startTimeStr, endTimeStr)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var stats []MessageStats
-	for rows.Next() {
-		var stat MessageStats
-		err := rows.Scan(&stat.Table, &stat.MessageCount)
-		if err != nil {
-			return nil, err
-		}
-		stats = append(stats, stat)
-	}
-
-	return stats, nil
-}
-
-// 注意：已移除日期检查功能，现在每3秒都会广播第一个消息桌号
- 
-// 获取第一个小纸条游戏的奖品信息
-func getFirstMessagePrizeInfo() (string, error) {
-	query := "SELECT content FROM ls_game_topic WHERE id = 4"
-
-	var content string
-	err := db.QueryRow(query).Scan(&content)
-	if err != nil {
-		return "", err
-	}
-
-	// 解析JSON内容
-	var contentData map[string]interface{}
-	if err := json.Unmarshal([]byte(content), &contentData); err != nil {
-		return "", err
-	}
-
-	// 获取奖品信息
-	if prize, ok := contentData["prize"].(map[string]interface{}); ok {
-		goodsName, hasName := prize["goods_name"].(string)
-		goodsPrice, hasPrice := prize["goods_price"].(string)
-
-		if hasName && hasPrice && goodsName != "" && goodsPrice != "" {
-			return fmt.Sprintf("「 价值 %s 元的 %s 」随机两桌石头剪刀布！", goodsPrice, goodsName), nil
-		} else if hasName && goodsName != "" {
-			return goodsName, nil
-		}
-	}
-
-	return "", nil
-}
-
-// 计算第一个小纸条游戏的倒计时
-func getFirstMessageCountdown() string {
-	if !firstMessageGameState.isActive || !firstMessageGameState.isCountdown {
-		return ""
-	}
-
-	now := time.Now()
-	if now.After(firstMessageGameState.endTime) {
-		// 倒计时结束，停止游戏状态
-		firstMessageGameState.isActive = false
-		firstMessageGameState.isCountdown = false
-		log.Printf("第一个小纸条游戏倒计时结束")
-		return ""
-	}
-
-	remaining := firstMessageGameState.endTime.Sub(now)
-	minutes := int(remaining.Minutes())
-	seconds := int(remaining.Seconds()) % 60
-
-	return fmt.Sprintf("%02d:%02d", minutes, seconds)
-}
-
-// 广播第一个消息桌号给控制台
 func broadcastFirstMessageTable(hub *Hub) {
 	// 只有在第一个小纸条游戏激活时才广播
 	if !firstMessageGameState.isActive {
