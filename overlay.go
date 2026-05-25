@@ -5,14 +5,18 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+var overlayShowDoneTimers sync.Map // gameID -> *time.Timer
 
 type overlayBroadcastRequest struct {
 	GameID int                    `json:"game_id"`
@@ -45,7 +49,18 @@ func (h *Hub) broadcastToGameControl(gameID int, wsType string, data map[string]
 	}
 	h.mutex.RUnlock()
 
-	log.Printf("overlay 广播 game_id=%d type=%s 送达=%d", gameID, wsType, sent)
+	if wsType == "message_overlay_show" {
+		scheduleOverlayShowDone(gameID, data)
+	}
+	if wsType == "message_overlay_end" {
+		cancelOverlayShowDoneTimer(gameID)
+	}
+
+	if sent == 0 {
+		log.Printf("overlay 广播 game_id=%d type=%s 送达=0（无 control 连接）", gameID, wsType)
+	} else {
+		log.Printf("overlay 广播 game_id=%d type=%s 送达=%d", gameID, wsType, sent)
+	}
 }
 
 func postJiubaOverlay(path string, form url.Values) {
@@ -96,9 +111,71 @@ func notifyJiubaOverlaySessionStart(gameID, gameType, overlayDurationSec int) {
 }
 
 func notifyJiubaOverlaySessionEnd(gameID int) {
+	cancelOverlayShowDoneTimer(gameID)
 	form := url.Values{}
 	form.Set("game_id", strconv.Itoa(gameID))
 	postJiubaOverlay("/outsideapi/game_overlay/sessionEnd", form)
+}
+
+func notifyJiubaOverlayShowDone(gameID int) {
+	if gameID <= 0 {
+		return
+	}
+	form := url.Values{}
+	form.Set("game_id", strconv.Itoa(gameID))
+	postJiubaOverlay("/outsideapi/game_overlay/showDone", form)
+}
+
+func cancelOverlayShowDoneTimer(gameID int) {
+	if v, ok := overlayShowDoneTimers.LoadAndDelete(gameID); ok {
+		if t, ok := v.(*time.Timer); ok {
+			t.Stop()
+		}
+	}
+}
+
+func scheduleOverlayShowDone(gameID int, data map[string]interface{}) {
+	if gameID <= 0 {
+		return
+	}
+	delaySec := extractOverlayShowDurationSec(data)
+	cancelOverlayShowDoneTimer(gameID)
+
+	timer := time.AfterFunc(time.Duration(delaySec)*time.Second, func() {
+		overlayShowDoneTimers.Delete(gameID)
+		notifyJiubaOverlayShowDone(gameID)
+	})
+	overlayShowDoneTimers.Store(gameID, timer)
+	log.Printf("overlay 已调度 showDone game_id=%d delay=%ds", gameID, delaySec)
+}
+
+func extractOverlayShowDurationSec(data map[string]interface{}) int {
+	if data == nil {
+		return 8
+	}
+	if v, ok := data["duration_ms"]; ok {
+		switch n := v.(type) {
+		case float64:
+			return int(math.Ceil(n / 1000))
+		case int:
+			return int(math.Ceil(float64(n) / 1000))
+		case json.Number:
+			f, _ := n.Float64()
+			return int(math.Ceil(f / 1000))
+		}
+	}
+	if v, ok := data["duration_sec"]; ok {
+		switch n := v.(type) {
+		case float64:
+			return int(math.Ceil(n))
+		case int:
+			return n
+		case json.Number:
+			i, _ := n.Int64()
+			return int(i)
+		}
+	}
+	return 8
 }
 
 func extractOverlayDurationSec(data map[string]interface{}) int {
@@ -138,6 +215,7 @@ func handleGameOverlayBroadcastJSON(hub *Hub, c *gin.Context) {
 		return
 	}
 
+	log.Printf("overlay notify 收到 game_id=%d type=%s body_len=%d", req.GameID, req.Type, len(raw))
 	hub.broadcastToGameControl(req.GameID, req.Type, req.Data)
 	c.JSON(http.StatusOK, gin.H{"code": 0, "msg": "ok"})
 }

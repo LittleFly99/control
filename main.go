@@ -1510,6 +1510,10 @@ func (c *Client) handleEnterGame(message Message) {
 		}
 	}
 	c.Hub.mutex.RUnlock()
+
+	if gameType == 1 && gameID > 0 {
+		go notifyJiubaOverlaySessionEnd(gameID)
+	}
 }
 
 // 处理开始游戏
