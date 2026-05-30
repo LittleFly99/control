@@ -27,4 +27,4 @@ make run-prod
 
 - jiuba `.env` 中 `domain.env = test` 时，`play_game` 指向 `http://39.97.39.66:8061`
 - overlay 广播：`POST /api/game_overlay/broadcast`（JSON）
-- DJ 开始/结束视频：WS `start_game_communication` / `end_game_communication` → 回调 jiuba `outsideapi/game_overlay/sessionStart`、`sessionEnd`；展示完成：`showDone`
+- DJ 开始/暂停/结束视频：WS `start_game_communication` / `pause_game_communication` / `end_game_communication` → 回调 jiuba `sessionStart`、`sessionPause`、`sessionEnd`；展示完成：`showDone`

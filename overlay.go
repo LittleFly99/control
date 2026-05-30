@@ -110,6 +110,12 @@ func notifyJiubaOverlaySessionStart(gameID, gameType, overlayDurationSec int) {
 	postJiubaOverlay("/outsideapi/game_overlay/sessionStart", form)
 }
 
+func notifyJiubaOverlaySessionPause(gameID int) {
+	form := url.Values{}
+	form.Set("game_id", strconv.Itoa(gameID))
+	postJiubaOverlay("/outsideapi/game_overlay/sessionPause", form)
+}
+
 func notifyJiubaOverlaySessionEnd(gameID int) {
 	cancelOverlayShowDoneTimer(gameID)
 	form := url.Values{}

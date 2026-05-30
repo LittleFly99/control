@@ -406,6 +406,8 @@ func (c *Client) handleMessage(message Message) {
 		c.handleEnterGame(message)
 	case "start_game_communication":
 		c.handleStartGame(message)
+	case "pause_game_communication":
+		c.handlePauseGameCommunication(message)
 	case "end_game_communication":
 		c.handleEndGameCommunication(message)
 	case "announce_result":
@@ -1664,6 +1666,50 @@ func (c *Client) handleStartGame(message Message) {
 			overlaySec = extractOverlayDurationSec(data)
 		}
 		go notifyJiubaOverlaySessionStart(gameID, gameType, overlaySec)
+	}
+}
+
+// 处理暂停视频（霸屏仍可发，不结束 overlay 会话）
+func (c *Client) handlePauseGameCommunication(message Message) {
+	if c.Type != ControlClient {
+		return
+	}
+
+	gameType := 1
+	if data, ok := message.Data.(map[string]interface{}); ok {
+		if gt, exists := data["game_type"]; exists {
+			if gtFloat, ok := gt.(float64); ok {
+				gameType = int(gtFloat)
+			}
+		}
+	}
+
+	gameID := int(c.GameID)
+	log.Printf("收到暂停视频请求: 游戏类型=%d, 游戏ID=%d, 客户端ID=%s", gameType, gameID, c.ID)
+
+	pauseMessage := Message{
+		Type: "pause_game_communication_response",
+		Data: map[string]interface{}{
+			"game_type":   gameType,
+			"client_id":   c.ID,
+			"message":     fmt.Sprintf("游戏%d已暂停", gameType),
+			"timestamp":   time.Now().Unix(),
+			"server_time": time.Now().Format("2006-01-02 15:04:05"),
+		},
+		GameID: gameID,
+	}
+
+	c.Hub.mutex.RLock()
+	for client := range c.Hub.clients {
+		if client.Type == ControlClient || client.Type == GameClient {
+			client.sendMessage(pauseMessage)
+			log.Printf("发送暂停视频响应给客户端: %s", client.ID)
+		}
+	}
+	c.Hub.mutex.RUnlock()
+
+	if gameType == 1 && gameID > 0 {
+		go notifyJiubaOverlaySessionPause(gameID)
 	}
 }
 
