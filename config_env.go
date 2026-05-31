@@ -17,6 +17,7 @@ func appEnv() string {
 }
 
 func loadAppEnv() {
+	_ = godotenv.Load(".env")
 	env := appEnv()
 	candidates := []string{
 		"config.env." + env,
