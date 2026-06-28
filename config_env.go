@@ -16,6 +16,13 @@ func appEnv() string {
 	return env
 }
 
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
 func loadAppEnv() {
 	_ = godotenv.Load(".env")
 	env := appEnv()
