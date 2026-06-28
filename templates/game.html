@@ -1,49 +1,906 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>游戏页面</title>
-  <style>
-    body { font-family: system-ui, sans-serif; margin: 24px; background: #0b1020; color: #eee; }
-    h1 { font-size: 1.25rem; margin-bottom: 8px; }
-    #status { color: #8fd; margin-bottom: 16px; }
-    #log { background: #1a2030; border-radius: 8px; padding: 12px; height: 320px; overflow: auto; font: 12px/1.5 monospace; white-space: pre-wrap; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>游戏客户端</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            margin-top: 15px;
+        }
+        
+        .status-0 { background: #f0f0f0; color: #666; }
+        .status-1 { background: #e6f7ff; color: #1890ff; }
+        .status-2 { background: #f6ffed; color: #52c41a; }
+        .status-3 { background: #fff2e8; color: #fa8c16; }
+        .status-4 { background: #fff1f0; color: #ff4d4f; }
+        
+        .content {
+            padding: 40px;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .section h3 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 20px;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            min-width: 200px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #52c41a 0%, #73d13d 100%);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%);
+        }
+        
+        .input-group {
+            margin: 20px 0;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: bold;
+        }
+        
+        .input-group input {
+            width: 100%;
+            max-width: 300px;
+            padding: 12px 16px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 16px;
+            text-align: center;
+            transition: border-color 0.3s ease;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .game-area {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 30px;
+            margin: 20px 0;
+            min-height: 300px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .game-info {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .game-info h4 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .game-info p {
+            color: #666;
+            margin: 5px 0;
+        }
+        
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .connected {
+            background: #f6ffed;
+            color: #52c41a;
+        }
+        
+        .disconnected {
+            background: #fff1f0;
+            color: #ff4d4f;
+        }
+        
+        .waiting {
+            color: #1890ff;
+            font-size: 18px;
+            margin: 20px 0;
+        }
+        
+        .match-info {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            text-align: center;
+        }
+        
+        .match-info h4 {
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        
+        .vs {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .result {
+            background: #f6ffed;
+            color: #52c41a;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .result.win {
+            background: #f6ffed;
+            color: #52c41a;
+        }
+        
+        .result.lose {
+            background: #fff1f0;
+            color: #ff4d4f;
+        }
+        
+        .result.spectator {
+            background: #f0f0f0;
+            color: #666;
+        }
+        
+        .spectator-info {
+            background: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            text-align: center;
+        }
+        
+        .spectator-info h4 {
+            margin: 0 0 10px 0;
+            color: #0ea5e9;
+        }
+        
+        .spectator-info div {
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        .selection-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        .selection-btn {
+            min-width: 120px;
+            font-size: 18px;
+            padding: 15px 20px;
+        }
+        
+        .selection-btn.selected {
+            background: linear-gradient(135deg, #52c41a 0%, #73d13d 100%);
+            transform: scale(1.05);
+        }
+        
+        .selection-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .selection-status {
+            text-align: center;
+            font-size: 16px;
+            color: #666;
+            margin-top: 15px;
+        }
+        
+        .game-selection {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 15px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+    </style>
 </head>
 <body>
-  <h1>游戏页面</h1>
-  <div id="status">连接中…</div>
-  <div id="log"></div>
+    <div class="connection-status" id="connectionStatus">连接中...</div>
+    
+    <div class="container">
+        <div class="header">
+            <h1>石头剪刀布游戏</h1>
+            <p>欢迎来到游戏客户端</p>
+            <div class="status" id="gameStatus">未开始</div>
+        </div>
+        
+        <div class="content">
+            <!-- 机器信息区域 -->
+            <div class="section" id="machineSection">
+                <h3>机器信息</h3>
+                <div class="input-group">
+                    <label for="machineInput">请输入您的机器编号</label>
+                    <input type="text" id="machineInput" placeholder="例如: MACHINE001" maxlength="50">
+                </div>
+                <button class="btn" id="getTableBtn" onclick="getTableByMachine()">获取桌号</button>
+                <div id="tableResult" class="hidden" style="margin-top: 15px; padding: 10px; background: #f6ffed; border-radius: 8px; color: #52c41a;">
+                    <strong>桌号：</strong><span id="tableDisplay"></span>
+                </div>
+            </div>
 
-  <script>
-    const gameId = {{if .game_id}}{{.game_id}}{{else}}0{{end}};
+            <!-- 报名区域 -->
+            <div class="section hidden" id="signupSection">
+                <h3>游戏报名</h3>
+                <div class="input-group">
+                    <label for="tableInput">您的桌号（自动获取）</label>
+                    <input type="text" id="tableInput" placeholder="请先输入机器编号获取桌号" maxlength="20" readonly>
+                </div>
+                <div class="input-group">
+                    <label for="genderSelect">请选择您的性别</label>
+                    <select id="genderSelect" style="width: 100%; max-width: 300px; padding: 12px 16px; border: 2px solid #e9ecef; border-radius: 8px; font-size: 16px; text-align: center;">
+                        <option value="">请选择性别</option>
+                        <option value="男">男</option>
+                        <option value="女">女</option>
+                    </select>
+                </div>
+                <button class="btn" id="signupBtn" onclick="signup()" disabled>立即报名</button>
+            </div>
+            
+            <!-- 等待报名区域 -->
+            <div class="section hidden" id="waitingSection">
+                <h3>等待报名开始</h3>
+                <p>请等待管理员开始报名...</p>
+            </div>
+            
+            <!-- 游戏区域 -->
+            <div class="game-area" id="gameArea">
+                <div class="waiting" id="waitingMessage">
+                    等待游戏开始...
+                </div>
+                
+                <!-- 游戏信息 -->
+                <div class="game-info hidden" id="gameInfo">
+                    <h4>游戏信息</h4>
+                    <p id="gameInfoText">暂无信息</p>
+                </div>
+                
+                <!-- 匹配信息 -->
+                <div class="match-info hidden" id="matchInfo">
+                    <h4>对战信息</h4>
+                    <div id="matchText">等待匹配...</div>
+                </div>
+                
+                <!-- 石头剪刀布游戏界面 -->
+                <div class="game-selection hidden" id="gameSelection">
+                    <h4>请选择您的出拳</h4>
+                    <div class="selection-buttons">
+                        <button class="btn selection-btn" onclick="selectChoice('rock')">✊ 石头</button>
+                        <button class="btn selection-btn" onclick="selectChoice('scissors')">✌️ 剪刀</button>
+                        <button class="btn selection-btn" onclick="selectChoice('paper')">✋ 布</button>
+                    </div>
+                    <div class="selection-status" id="selectionStatus">
+                        等待您的选择...
+                    </div>
+                </div>
+                
+                <!-- 观战信息 -->
+                <div class="spectator-info hidden" id="spectatorInfo">
+                    <h4>👀 观战模式</h4>
+                    <div id="spectatorText">游戏正在进行中...</div>
+                </div>
+                
+                <!-- 结果信息 -->
+                <div class="result hidden" id="resultInfo">
+                    <div id="resultText">等待结果...</div>
+                </div>
+            </div>
+            
+            <!-- 操作按钮 -->
+            <div class="section hidden" id="actionSection">
+                <button class="btn btn-danger" id="leaveBtn" onclick="leaveGame()">离开游戏</button>
+            </div>
+        </div>
+    </div>
 
-    const statusEl = document.getElementById('status');
-    const logEl = document.getElementById('log');
+    <script>
+        let ws = null;
+        let gameId = null; // 将由服务端自动分配
+        let gameStatus = 0;
+        let clientId = null;
+        let tableNumber = null;
+        let machineSN = null; // 机器编号
+        let isSignedUp = false;
+        let selectedChoice = null;
+        let isInGame = false;
 
-    function log(msg) {
-      logEl.textContent += msg + '\n';
-      logEl.scrollTop = logEl.scrollHeight;
-    }
+        // 初始化WebSocket连接
+        function initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws?type=game`;
+            
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                updateConnectionStatus(true);
+                console.log('WebSocket连接已建立');
+                
+                // 不自动获取游戏信息，等待用户输入机器编号
+                console.log('请先输入机器编号获取桌号');
+            };
+            
+            ws.onmessage = function(event) {
+                const message = JSON.parse(event.data);
+                handleMessage(message);
+            };
+            
+            ws.onclose = function() {
+                updateConnectionStatus(false);
+                console.log('WebSocket连接已断开');
+                
+                // 5秒后重连
+                setTimeout(initWebSocket, 5000);
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket错误:', error);
+            };
+        }
 
-    function connect() {
-      const qs = new URLSearchParams({ type: 'game' });
-      if (gameId) qs.set('game_id', String(gameId));
-      const ws = new WebSocket((location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws?' + qs);
+        // 处理WebSocket消息
+        function handleMessage(message) {
+            console.log('收到消息:', message);
+            
+            switch(message.type) {
+                case 'game_info':
+                    updateGameInfo(message.data);
+                    break;
+                case 'game_status':
+                    updateGameStatus(message.data);
+                    break;
+                case 'match_info':
+                    showMatchInfo(message.data);
+                    break;
+                case 'game_result':
+                    showGameResult(message.data);
+                    break;
+                case 'signup_success':
+                    handleSignupSuccess(message.data);
+                    break;
+                case 'game_start':
+                    console.log('收到游戏开始消息:', message.data);
+                    startGame(message.data);
+                    break;
+                case 'game_tie':
+                    console.log('收到加塞消息:', message.data);
+                    handleGameTie(message.data);
+                    break;
+                case 'game_spectator':
+                    handleGameSpectator(message.data);
+                    break;
+                case 'game_in_progress':
+                    handleGameInProgress(message.data);
+                    break;
+                default:
+                    console.log('未知消息类型:', message.type);
+            }
+        }
 
-      ws.onopen = () => {
-        statusEl.textContent = gameId ? '已连接 · 游戏 #' + gameId : '已连接 · 等待游戏';
-      };
-      ws.onmessage = (e) => log(e.data);
-      ws.onclose = () => {
-        statusEl.textContent = '连接断开，3 秒后重连…';
-        setTimeout(connect, 3000);
-      };
-      ws.onerror = () => statusEl.textContent = '连接错误';
-    }
+        // 更新游戏信息
+        function updateGameInfo(data) {
+            gameId = data.id; // 更新gameId为服务端返回的游戏ID
+            gameStatus = data.status;
+            updateGameStatusDisplay();
+            console.log('游戏信息已更新:', data);
+            
+            // 如果服务端返回了桌号信息，自动填充
+            if (data.table && machineSN) {
+                tableNumber = data.table;
+                document.getElementById('tableInput').value = data.table;
+                document.getElementById('tableDisplay').textContent = data.table;
+                document.getElementById('tableResult').classList.remove('hidden');
+                document.getElementById('signupBtn').disabled = false;
+                
+                console.log('已自动获取桌号:', data.table);
+            }
+            
+            if (data.status === 0) {
+                showWaitingSection();
+            } else if (data.status === 1) {
+                if (tableNumber) {
+                    showSignupSection();
+                } else {
+                    showMachineSection();
+                }
+            } else if (data.status === 2) {
+                hideSignupSection();
+                hideMachineSection();
+                showWaitingSection();
+            } else if (data.status === 3) {
+                hideSignupSection();
+                hideMachineSection();
+                showGameArea();
+            } else if (data.status === 4) {
+                hideSignupSection();
+                hideMachineSection();
+                showGameComplete();
+            }
+        }
 
-    connect();
-  </script>
+        // 更新游戏状态
+        function updateGameStatus(data) {
+            gameStatus = data.status;
+            updateGameStatusDisplay();
+            
+            if (data.status === 0) {
+                showWaitingSection();
+            } else if (data.status === 1) {
+                showSignupSection();
+            } else if (data.status === 2) {
+                hideSignupSection();
+                showGameArea();
+            } else if (data.status === 3) {
+                showGameComplete();
+            }
+        }
+
+        // 显示匹配信息
+        function showMatchInfo(data) {
+            const matchInfo = document.getElementById('matchInfo');
+            const matchText = document.getElementById('matchText');
+            
+            matchText.innerHTML = `
+                <div>${data.table1}</div>
+                <div class="vs">VS</div>
+                <div>${data.table2}</div>
+            `;
+            
+            matchInfo.classList.remove('hidden');
+        }
+
+        // 显示游戏结果
+        function showGameResult(data) {
+            const resultInfo = document.getElementById('resultInfo');
+            const resultText = document.getElementById('resultText');
+            
+            let resultClass = '';
+            let resultMessage = '';
+            
+            // 根据新的消息格式处理结果
+            if (data.result === '胜利') {
+                resultClass = 'win';
+                resultMessage = `🎉 ${data.message} 对手：${data.opponent}`;
+            } else if (data.result === '失败') {
+                resultClass = 'lose';
+                resultMessage = `😔 ${data.message} 对手：${data.opponent}`;
+            } else if (data.result === '观战') {
+                resultClass = 'spectator';
+                resultMessage = `👀 ${data.message}`;
+            } else {
+                // 兼容旧格式
+                if (data.winner === tableNumber) {
+                    resultClass = 'win';
+                    resultMessage = `🎉 恭喜！您获胜了！结果：${data.result}`;
+                } else {
+                    resultClass = 'lose';
+                    resultMessage = `😔 很遗憾，您输了。结果：${data.result}`;
+                }
+            }
+            
+            resultText.innerHTML = resultMessage;
+            resultText.className = `result ${resultClass}`;
+            resultInfo.classList.remove('hidden');
+            
+            // 隐藏游戏选择界面
+            document.getElementById('gameSelection').classList.add('hidden');
+            isInGame = false;
+        }
+
+        // 处理报名成功
+        function handleSignupSuccess(data) {
+            isSignedUp = true;
+            clientId = data.client_id;
+            tableNumber = data.table;
+            
+            document.getElementById('tableInput').value = tableNumber;
+            document.getElementById('signupBtn').textContent = '已报名';
+            document.getElementById('signupBtn').disabled = true;
+            
+            showGameArea();
+        }
+
+        // 更新游戏状态显示
+        function updateGameStatusDisplay() {
+            const statusElement = document.getElementById('gameStatus');
+            const statusMap = {
+                0: '未开始',
+                1: '报名中',
+                2: '进行中',
+                3: '已完成',
+                4: '已取消'
+            };
+            
+            statusElement.textContent = statusMap[gameStatus] || '未知';
+            statusElement.className = `status status-${gameStatus}`;
+        }
+
+        // 更新连接状态
+        function updateConnectionStatus(connected) {
+            const statusElement = document.getElementById('connectionStatus');
+            if (connected) {
+                statusElement.textContent = '已连接';
+                statusElement.className = 'connection-status connected';
+            } else {
+                statusElement.textContent = '连接断开';
+                statusElement.className = 'connection-status disconnected';
+            }
+        }
+
+        // 显示报名区域
+        function showSignupSection() {
+            document.getElementById('signupSection').classList.remove('hidden');
+        }
+
+        // 隐藏报名区域
+        function hideSignupSection() {
+            document.getElementById('signupSection').classList.add('hidden');
+        }
+
+        // 显示游戏区域
+        function showGameArea() {
+            document.getElementById('gameArea').classList.remove('hidden');
+            document.getElementById('actionSection').classList.remove('hidden');
+            // 不自动显示游戏选择界面，只有收到game_start消息才显示
+        }
+
+        // 显示游戏完成
+        function showGameComplete() {
+            document.getElementById('waitingMessage').textContent = '游戏已结束';
+            document.getElementById('actionSection').classList.remove('hidden');
+        }
+        
+        // 显示等待报名区域
+        function showWaitingSection() {
+            document.getElementById('waitingSection').classList.remove('hidden');
+            document.getElementById('signupSection').classList.add('hidden');
+            document.getElementById('machineSection').classList.add('hidden');
+        }
+
+        // 显示机器信息区域
+        function showMachineSection() {
+            document.getElementById('machineSection').classList.remove('hidden');
+            document.getElementById('signupSection').classList.add('hidden');
+            document.getElementById('waitingSection').classList.add('hidden');
+        }
+
+        // 隐藏机器信息区域
+        function hideMachineSection() {
+            document.getElementById('machineSection').classList.add('hidden');
+        }
+        
+        // 开始游戏
+        function startGame(data) {
+            isInGame = true;
+            document.getElementById('gameSelection').classList.remove('hidden');
+            document.getElementById('selectionStatus').textContent = '请选择您的出拳';
+            resetSelection();
+            console.log('游戏开始，显示选择界面', data);
+            console.log('isInGame:', isInGame, 'selectedChoice:', selectedChoice);
+        }
+        
+        // 处理平局
+        function handleGameTie(data) {
+            isInGame = true;
+            selectedChoice = null;
+            document.getElementById('gameSelection').classList.remove('hidden');
+            document.getElementById('selectionStatus').textContent = '平局！请重新选择您的出拳';
+            resetSelection();
+            console.log('收到加塞消息，显示选择界面');
+        }
+        
+        // 处理观战消息
+        function handleGameSpectator(data) {
+            // 隐藏游戏选择界面
+            document.getElementById('gameSelection').classList.add('hidden');
+            isInGame = false;
+            
+            // 显示观战信息
+            const spectatorInfo = document.getElementById('spectatorInfo');
+            if (spectatorInfo) {
+                spectatorInfo.textContent = data.message + ' 对战双方：' + data.players.join(' vs ');
+                spectatorInfo.classList.remove('hidden');
+            }
+        }
+        
+        // 处理游戏进行中消息
+        function handleGameInProgress(data) {
+            // 隐藏游戏选择界面
+            document.getElementById('gameSelection').classList.add('hidden');
+            isInGame = false;
+            
+            // 显示游戏进行中信息
+            const spectatorInfo = document.getElementById('spectatorInfo');
+            if (spectatorInfo) {
+                spectatorInfo.textContent = data.message + ' 对战双方：' + data.players.join(' vs ');
+                spectatorInfo.classList.remove('hidden');
+            }
+            
+            console.log('收到游戏进行中消息:', data);
+        }
+        
+        // 重置选择
+        function resetSelection() {
+            selectedChoice = null;
+            document.querySelectorAll('.selection-btn').forEach(btn => {
+                btn.classList.remove('selected');
+                btn.disabled = false;
+            });
+            console.log('重置选择状态，按钮已启用');
+        }
+        
+        // 选择出拳
+        function selectChoice(choice) {
+            console.log('点击选择:', choice, 'isInGame:', isInGame, 'selectedChoice:', selectedChoice);
+            if (isInGame && !selectedChoice) {
+                selectedChoice = choice;
+                
+                // 更新UI
+                document.querySelectorAll('.selection-btn').forEach(btn => {
+                    btn.classList.remove('selected');
+                    btn.disabled = true;
+                });
+                event.target.classList.add('selected');
+                
+                // 发送选择到服务器
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: 'player_choice',
+                        game_id: gameId,
+                        data: {
+                            choice: choice,
+                            table: tableNumber
+                        }
+                    }));
+                }
+                
+                document.getElementById('selectionStatus').textContent = '已选择，等待对手...';
+            }
+        }
+
+        // 报名
+        function signup() {
+            if (!gameId) {
+                alert('游戏信息未加载，请稍后再试');
+                return;
+            }
+            
+            const tableInput = document.getElementById('tableInput');
+            const genderSelect = document.getElementById('genderSelect');
+            const table = tableInput.value.trim();
+            const gender = genderSelect.value;
+            
+            if (!table) {
+                alert('请输入桌号');
+                return;
+            }
+            
+            if (!gender) {
+                alert('请选择性别');
+                return;
+            }
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'signup',
+                    game_id: gameId,
+                    data: {
+                        table: table,
+                        gender: gender
+                    }
+                }));
+                
+                console.log('发送报名信息:', table, gender);
+            }
+        }
+
+        // 离开游戏
+        function leaveGame() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+            
+            // 可以添加其他离开游戏的逻辑
+            alert('已离开游戏');
+        }
+
+        // 获取游戏信息
+        function getGameInfo() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = {
+                    type: 'get_game_info'
+                };
+                
+                // 如果已获取到机器编号，则一起发送
+                if (machineSN) {
+                    message.data = {
+                        machine_sn: machineSN
+                    };
+                }
+                
+                ws.send(JSON.stringify(message));
+            }
+        }
+
+        // 根据机器编号获取桌号
+        function getTableByMachine() {
+            const machineInput = document.getElementById('machineInput');
+            const machineValue = machineInput.value.trim();
+            
+            if (!machineValue) {
+                alert('请输入机器编号');
+                return;
+            }
+
+            machineSN = machineValue;
+            
+            // 直接发送获取游戏信息请求，包含机器编号
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'get_game_info',
+                    data: {
+                        machine_sn: machineSN
+                    }
+                }));
+                
+                console.log('正在根据机器编号获取桌号:', machineSN);
+            } else {
+                alert('WebSocket连接未建立，请稍后再试');
+            }
+        }
+
+        // 从URL参数获取机器编号
+        function getMachineSNFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('machine_sn');
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initWebSocket();
+            
+            // 检查URL中是否有机器编号参数
+            const urlMachineSN = getMachineSNFromURL();
+            if (urlMachineSN) {
+                // 如果有URL参数，自动填充并获取桌号
+                document.getElementById('machineInput').value = urlMachineSN;
+                machineSN = urlMachineSN;
+                
+                // 等待WebSocket连接建立后再获取桌号
+                setTimeout(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        getTableByMachine();
+                    } else {
+                        // 如果WebSocket还没连接好，等待连接建立
+                        const checkConnection = setInterval(() => {
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                clearInterval(checkConnection);
+                                getTableByMachine();
+                            }
+                        }, 100);
+                    }
+                }, 100);
+            }
+            
+            // 回车键获取桌号
+            document.getElementById('machineInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    getTableByMachine();
+                }
+            });
+            
+            // 回车键报名
+            document.getElementById('tableInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    signup();
+                }
+            });
+        });
+    </script>
 </body>
 </html>

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -154,13 +155,84 @@ func calculateRemainingTime(endTime int) string {
 	remaining := endTime - now
 
 	if remaining <= 0 {
-		return ""
+		return "0:00"
 	}
 
 	minutes := remaining / 60
 	seconds := remaining % 60
 
 	return fmt.Sprintf("%02d:%02d", minutes, seconds)
+}
+
+func parseCountdownSeconds(countdown string) int {
+	countdown = strings.TrimSpace(countdown)
+	if countdown == "" {
+		return 0
+	}
+
+	parts := strings.Split(countdown, ":")
+	if len(parts) == 2 {
+		minutes, errMin := strconv.Atoi(strings.TrimSpace(parts[0]))
+		seconds, errSec := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if errMin == nil && errSec == nil && minutes >= 0 && seconds >= 0 {
+			return minutes*60 + seconds
+		}
+	}
+
+	// 后台「倒计时」下拉值为 1-10 分钟；历史数据也可能是纯数字分钟
+	if n, err := strconv.Atoi(countdown); err == nil && n > 0 {
+		if n <= 60 {
+			return n * 60
+		}
+		return n
+	}
+
+	return 0
+}
+
+// extractCountdownFromTopicContent 解析主题 content 中的倒计时（兼容 JSON 数字、分钟数字符串、MM:SS）
+func extractCountdownFromTopicContent(content string) string {
+	if content == "" {
+		return ""
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		return ""
+	}
+	v, ok := raw["countdown"]
+	if !ok || v == nil {
+		return ""
+	}
+	switch n := v.(type) {
+	case float64:
+		minutes := int(n)
+		if minutes > 0 {
+			return fmt.Sprintf("%02d:00", minutes)
+		}
+	case int:
+		if n > 0 {
+			return fmt.Sprintf("%02d:00", n)
+		}
+	case int64:
+		minutes := int(n)
+		if minutes > 0 {
+			return fmt.Sprintf("%02d:00", minutes)
+		}
+	case string:
+		s := strings.TrimSpace(n)
+		if s == "" {
+			return ""
+		}
+		if strings.Contains(s, ":") {
+			return s
+		}
+		if minutes, err := strconv.Atoi(s); err == nil && minutes > 0 {
+			return fmt.Sprintf("%02d:00", minutes)
+		}
+	default:
+		return strings.TrimSpace(fmt.Sprintf("%v", v))
+	}
+	return ""
 }
 
 func updateGameContent(gameID int, content string) error {
@@ -253,6 +325,33 @@ func getGameContent(gameID int) (*GameContent, error) {
 	}
 
 	return &content, nil
+}
+
+// extractParticipantsFromTopicContent 解析主题 content 中的参与人数（兼容 JSON 数字或字符串）
+func extractParticipantsFromTopicContent(content string) string {
+	if content == "" {
+		return ""
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
+		return ""
+	}
+	v, ok := raw["participants"]
+	if !ok || v == nil {
+		return ""
+	}
+	switch n := v.(type) {
+	case float64:
+		return strconv.Itoa(int(n))
+	case int:
+		return strconv.Itoa(n)
+	case int64:
+		return strconv.Itoa(int(n))
+	case string:
+		return strings.TrimSpace(n)
+	default:
+		return strings.TrimSpace(fmt.Sprintf("%v", v))
+	}
 }
 
 func getGameTopicByID(topicID int) (*GameTopic, error) {

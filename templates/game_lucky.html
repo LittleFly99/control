@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lucky摇骰子 - 模拟参与端</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a0a2e 0%, #3d0f5c 50%, #e61c72 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1a0a2e 0%, #e61c72 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 { font-size: 28px; margin-bottom: 8px; }
+        .header p { font-size: 14px; opacity: 0.85; }
+
+        .status {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 25px;
+            font-size: 14px;
+            font-weight: bold;
+            margin-top: 12px;
+            background: rgba(255,255,255,0.2);
+        }
+
+        .content { padding: 32px; }
+
+        .section { margin-bottom: 28px; text-align: center; }
+        .section h3 { color: #333; margin-bottom: 16px; font-size: 18px; }
+
+        .btn {
+            background: linear-gradient(135deg, #e61c72 0%, #ff6b9d 100%);
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: bold;
+            transition: all 0.25s ease;
+            min-width: 180px;
+        }
+
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(230,28,114,0.4); }
+        .btn:disabled { background: #ccc; cursor: not-allowed; transform: none; box-shadow: none; }
+        .btn-secondary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .btn-danger { background: linear-gradient(135deg, #ff4d4f 0%, #ff7875 100%); }
+
+        .input-group { margin: 16px 0; text-align: left; max-width: 320px; margin-left: auto; margin-right: auto; }
+        .input-group label { display: block; margin-bottom: 6px; color: #333; font-weight: 600; font-size: 14px; }
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 12px 14px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 15px;
+            text-align: center;
+        }
+        .input-group input:focus, .input-group select:focus { outline: none; border-color: #e61c72; }
+
+        .game-area {
+            background: linear-gradient(180deg, #fdf2f8 0%, #fce7f3 100%);
+            border-radius: 12px;
+            padding: 28px;
+            min-height: 260px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .waiting { color: #e61c72; font-size: 17px; margin: 16px 0; }
+
+        .info-card {
+            background: white;
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin: 12px 0;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            text-align: left;
+            font-size: 14px;
+            color: #555;
+        }
+
+        .info-card strong { color: #e61c72; }
+
+        .connection-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .connected { background: #f6ffed; color: #52c41a; }
+        .disconnected { background: #fff1f0; color: #ff4d4f; }
+
+        .hidden { display: none; }
+
+        .dice-zone { text-align: center; margin: 20px 0; }
+        .dice-display {
+            font-size: 72px;
+            line-height: 1;
+            margin: 16px 0;
+            min-height: 80px;
+            transition: transform 0.1s;
+        }
+        .dice-display.shaking { animation: shake 0.15s infinite; }
+
+        @keyframes shake {
+            0%, 100% { transform: rotate(-8deg) scale(1.05); }
+            50% { transform: rotate(8deg) scale(0.95); }
+        }
+
+        .dice-faces { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+        .dice-btn {
+            width: 52px; height: 52px;
+            border-radius: 10px;
+            border: 2px solid #e61c72;
+            background: white;
+            font-size: 24px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .dice-btn:hover, .dice-btn.selected {
+            background: #e61c72;
+            color: white;
+            transform: scale(1.08);
+        }
+
+        .stage-banner {
+            background: linear-gradient(135deg, #e61c72, #ff6b9d);
+            color: white;
+            padding: 14px 24px;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 16px;
+        }
+
+        .result-box {
+            background: #f6ffed;
+            color: #52c41a;
+            border-radius: 8px;
+            padding: 14px;
+            margin-top: 12px;
+            font-weight: bold;
+        }
+
+        .hint { font-size: 12px; color: #999; margin-top: 8px; }
+        .hint-warn { font-size: 13px; color: #fa8c16; margin-top: 10px; line-height: 1.5; }
+        .steps {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            text-align: left;
+            font-size: 13px;
+            color: #666;
+            line-height: 1.8;
+        }
+        .steps strong { color: #333; }
+        .steps .done { color: #52c41a; }
+        .steps .active { color: #e61c72; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="connection-status" id="connectionStatus">连接中...</div>
+
+    <div class="container">
+        <div class="header">
+            <h1>🎲 Lucky摇骰子</h1>
+            <p>模拟上台参与端 · 用于测试报名与摇骰流程</p>
+            <div class="status" id="phaseStatus">等待连接</div>
+        </div>
+
+        <div class="content">
+            <div class="steps" id="stepGuide">
+                <div><strong>测试流程：</strong></div>
+                <div id="step1">① 获取或填写桌号</div>
+                <div id="step2">② 选择性别并报名（需 DJ 先点「报名计时」）</div>
+                <div id="step3">③ 等待 DJ 选您上台 → 摇骰子</div>
+            </div>
+
+            <div class="section" id="machineSection">
+                <h3>① 绑定桌号</h3>
+                <div class="input-group">
+                    <label for="machineInput">机器编号（可选）</label>
+                    <input type="text" id="machineInput" placeholder="例如: MACHINE001" maxlength="50">
+                </div>
+                <button class="btn btn-secondary" onclick="getTableByMachine()">根据机器编号获取桌号</button>
+                <p class="hint">若获取失败，可直接在下方手动填写桌号</p>
+
+                <div class="input-group" style="margin-top:20px;">
+                    <label for="manualTableInput">桌号（手动填写，测试用）</label>
+                    <input type="text" id="manualTableInput" placeholder="例如: 1 或 A01" maxlength="20">
+                </div>
+                <button class="btn btn-secondary" onclick="applyManualTable()">确认使用此桌号</button>
+
+                <div id="tableResult" class="hidden info-card" style="margin-top:12px;text-align:center;">
+                    <strong>当前桌号：</strong><span id="tableDisplay"></span>
+                </div>
+            </div>
+
+            <div class="section" id="signupSection">
+                <h3>② 游戏报名</h3>
+                <div class="input-group">
+                    <label>桌号</label>
+                    <input type="text" id="tableInput" readonly placeholder="请先获取或填写桌号">
+                </div>
+                <div class="input-group">
+                    <label for="genderSelect">性别</label>
+                    <select id="genderSelect">
+                        <option value="">请选择</option>
+                        <option value="男">男</option>
+                        <option value="女">女</option>
+                    </select>
+                </div>
+                <button class="btn" id="signupBtn" onclick="signup()" disabled>立即报名</button>
+                <p class="hint" id="signupHint">请先确认桌号</p>
+                <p class="hint-warn hidden" id="signupWaitHint">DJ 尚未开始报名，请先在 DJ 控制台点击「报名计时」</p>
+            </div>
+
+            <div class="game-area" id="gameArea">
+                <div class="waiting" id="waitingMessage">请先输入机器编号并连接游戏</div>
+
+                <div class="info-card hidden" id="customConfig">
+                    <div><strong>奖品：</strong><span id="prizeName">-</span></div>
+                    <div><strong>上台人数：</strong><span id="participants">-</span></div>
+                    <div><strong>报名倒计时：</strong><span id="countdown">-</span></div>
+                </div>
+
+                <div class="hidden" id="onStageSection">
+                    <div class="stage-banner">🎉 您已上台！请摇骰子</div>
+                    <div class="dice-zone">
+                        <div class="dice-display" id="diceDisplay">🎲</div>
+                        <button class="btn" id="shakeBtn" onclick="shakeDice()">摇骰子</button>
+                        <div class="dice-faces" id="manualDice">
+                            <button class="dice-btn" onclick="pickDice(1)">⚀</button>
+                            <button class="dice-btn" onclick="pickDice(2)">⚁</button>
+                            <button class="dice-btn" onclick="pickDice(3)">⚂</button>
+                            <button class="dice-btn" onclick="pickDice(4)">⚃</button>
+                            <button class="dice-btn" onclick="pickDice(5)">⚄</button>
+                            <button class="dice-btn" onclick="pickDice(6)">⚅</button>
+                        </div>
+                        <p class="hint">也可直接点选点数，结果会同步到控制台</p>
+                    </div>
+                    <div class="result-box hidden" id="diceResult"></div>
+                </div>
+
+                <div class="hidden" id="spectatorSection">
+                    <div class="info-card" id="spectatorText">游戏进行中，请观战...</div>
+                </div>
+            </div>
+
+            <div class="section hidden" id="actionSection">
+                <button class="btn btn-secondary" onclick="simulateOnStage()">模拟上台（测试用）</button>
+                <button class="btn btn-danger" onclick="leaveGame()">断开连接</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DICE_UNICODE = ['⚀','⚁','⚂','⚃','⚄','⚅'];
+        let ws = null;
+        let gameId = null;
+        let gameStatus = 0;
+        let tableNumber = null;
+        let machineSN = null;
+        let isSignedUp = false;
+        let isOnStage = false;
+        let diceSubmitted = false;
+
+        const phaseMap = {
+            idle: '未开始',
+            signup: '报名中',
+            waiting: '报名结束',
+            playing: '进行中',
+            onstage: '已上台',
+            done: '已结束'
+        };
+
+        function setPhase(key) {
+            document.getElementById('phaseStatus').textContent = phaseMap[key] || key;
+        }
+
+        function updateStepGuide() {
+            const s1 = document.getElementById('step1');
+            const s2 = document.getElementById('step2');
+            const s3 = document.getElementById('step3');
+            s1.className = tableNumber ? 'done' : 'active';
+            s2.className = isSignedUp ? 'done' : (tableNumber ? 'active' : '');
+            s3.className = isOnStage ? 'active' : (isSignedUp ? 'active' : '');
+        }
+
+        function updateSignupButton() {
+            const btn = document.getElementById('signupBtn');
+            const hint = document.getElementById('signupHint');
+            const waitHint = document.getElementById('signupWaitHint');
+
+            if (isSignedUp) {
+                btn.disabled = true;
+                btn.textContent = '已报名';
+                hint.textContent = '报名成功，等待 DJ 选桌上台';
+                waitHint.classList.add('hidden');
+                return;
+            }
+            if (!tableNumber) {
+                btn.disabled = true;
+                hint.textContent = '请先获取或手动填写桌号';
+                waitHint.classList.add('hidden');
+                return;
+            }
+            if (gameStatus !== 1) {
+                btn.disabled = true;
+                hint.textContent = '当前不可报名';
+                waitHint.classList.remove('hidden');
+                return;
+            }
+            btn.disabled = false;
+            btn.textContent = '立即报名';
+            hint.textContent = '报名后 DJ 控制台会出现您的桌号';
+            waitHint.classList.add('hidden');
+        }
+
+        function initWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const params = new URLSearchParams(window.location.search);
+            const urlGameId = params.get('game_id');
+            let wsUrl = `${protocol}//${window.location.host}/ws?type=game`;
+            if (urlGameId) {
+                wsUrl += `&game_id=${urlGameId}`;
+                gameId = parseInt(urlGameId, 10) || null;
+            }
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                updateConnectionStatus(true);
+                console.log('WebSocket 已连接');
+                requestGameInfo();
+            };
+
+            ws.onmessage = function(event) {
+                const message = JSON.parse(event.data);
+                handleMessage(message);
+            };
+
+            ws.onclose = function() {
+                updateConnectionStatus(false);
+                setTimeout(initWebSocket, 5000);
+            };
+
+            ws.onerror = function(err) { console.error(err); };
+        }
+
+        function handleMessage(message) {
+            console.log('收到:', message);
+            switch (message.type) {
+                case 'game_info':
+                    updateGameInfo(message.data);
+                    break;
+                case 'game_status':
+                    updateGameStatus(message.data);
+                    break;
+                case 'signup_success':
+                    handleSignupSuccess(message.data);
+                    break;
+                case 'custom_signup_config':
+                    showCustomConfig(message.data);
+                    break;
+                case 'game_on_stage':
+                    enterOnStage(message.data);
+                    break;
+                case 'game_end':
+                case 'end_game_communication_response':
+                    handleGameEnd(message.data);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        function updateGameInfo(data) {
+            if (data.id) gameId = data.id;
+            gameStatus = data.status;
+            if (data.table && machineSN) {
+                applyTable(data.table);
+            } else if (data.table) {
+                applyTable(data.table);
+            } else if (machineSN) {
+                alert('未找到机器编号对应的桌号，请改用下方「手动填写桌号」');
+            }
+            refreshUIByStatus(data.status);
+        }
+
+        function updateGameStatus(data) {
+            gameStatus = data.status;
+            refreshUIByStatus(data.status);
+        }
+
+        function refreshUIByStatus(status) {
+            document.getElementById('waitingMessage').classList.remove('hidden');
+
+            if (status === 0) {
+                setPhase('idle');
+                document.getElementById('waitingMessage').textContent = '等待 DJ 点击「报名计时」开始报名...';
+            } else if (status === 1) {
+                setPhase('signup');
+                document.getElementById('waitingMessage').textContent = '报名进行中，请填写信息并点击「立即报名」';
+            } else if (status === 2) {
+                setPhase('waiting');
+                document.getElementById('waitingMessage').textContent = isSignedUp
+                    ? '报名已结束，等待 DJ 选桌上台...'
+                    : '报名已结束，您未参与本次游戏';
+            } else if (status === 3) {
+                setPhase(isOnStage ? 'onstage' : 'playing');
+                document.getElementById('waitingMessage').textContent = isOnStage ? '您已上台' : '游戏进行中';
+            } else if (status === 4) {
+                setPhase('done');
+                document.getElementById('waitingMessage').textContent = '游戏已结束';
+            }
+
+            updateSignupButton();
+            updateStepGuide();
+
+            if (isSignedUp) {
+                document.getElementById('actionSection').classList.remove('hidden');
+            }
+        }
+
+        function showCustomConfig(data) {
+            document.getElementById('customConfig').classList.remove('hidden');
+            if (data.prize_name) document.getElementById('prizeName').textContent = data.prize_name;
+            if (data.participants) document.getElementById('participants').textContent = data.participants + ' 人';
+            if (data.start_time) document.getElementById('countdown').textContent = data.start_time;
+        }
+
+        function handleSignupSuccess(data) {
+            isSignedUp = true;
+            tableNumber = data.table;
+            document.getElementById('tableInput').value = tableNumber;
+            document.getElementById('actionSection').classList.remove('hidden');
+            document.getElementById('waitingMessage').textContent = '报名成功！等待 DJ 选择上台桌号...';
+            setPhase('waiting');
+            updateSignupButton();
+            updateStepGuide();
+        }
+
+        function enterOnStage(data) {
+            const list = (data && data.tablelist) || [];
+            const normalized = list.map(t => String(t).replace(/^桌/, ''));
+            if (!tableNumber || !normalized.includes(String(tableNumber))) {
+                document.getElementById('spectatorSection').classList.remove('hidden');
+                document.getElementById('spectatorText').textContent =
+                    '本轮上台桌号：' + (list.join('、') || '未知') + '，您在本轮观战';
+                return;
+            }
+            isOnStage = true;
+            setPhase('onstage');
+            document.getElementById('waitingMessage').classList.add('hidden');
+            document.getElementById('spectatorSection').classList.add('hidden');
+            document.getElementById('onStageSection').classList.remove('hidden');
+        }
+
+        function simulateOnStage() {
+            if (!isSignedUp) {
+                alert('请先完成报名');
+                return;
+            }
+            enterOnStage({ tablelist: [tableNumber], message: '模拟上台' });
+        }
+
+        function handleGameEnd() {
+            isOnStage = false;
+            setPhase('done');
+            document.getElementById('onStageSection').classList.add('hidden');
+            document.getElementById('waitingMessage').classList.remove('hidden');
+            document.getElementById('waitingMessage').textContent = '本轮游戏已结束';
+        }
+
+        function shakeDice() {
+            if (!isOnStage || diceSubmitted) return;
+            const el = document.getElementById('diceDisplay');
+            const btn = document.getElementById('shakeBtn');
+            const manualDice = document.getElementById('manualDice');
+            btn.disabled = true;
+            if (manualDice) manualDice.style.pointerEvents = 'none';
+            el.classList.add('shaking');
+            let ticks = 0;
+            const animTimer = setInterval(() => {
+                const preview = Math.floor(Math.random() * 6) + 1;
+                el.textContent = DICE_UNICODE[preview - 1];
+                ticks++;
+                if (ticks >= 12) {
+                    clearInterval(animTimer);
+                    el.classList.remove('shaking');
+                    const value = Math.floor(Math.random() * 6) + 1;
+                    el.textContent = DICE_UNICODE[value - 1];
+                    submitDice(value);
+                }
+            }, 80);
+        }
+
+        function pickDice(value) {
+            if (!isOnStage || diceSubmitted) return;
+            const num = Number(value);
+            if (!num || num < 1 || num > 6) return;
+            document.getElementById('diceDisplay').textContent = DICE_UNICODE[num - 1];
+            submitDice(num);
+        }
+
+        function submitDice(value) {
+            if (diceSubmitted) return;
+            const num = Number(value);
+            if (!num || num < 1 || num > 6) return;
+            diceSubmitted = true;
+            document.getElementById('shakeBtn').disabled = true;
+            document.querySelectorAll('.dice-btn').forEach(b => {
+                b.disabled = true;
+                b.style.pointerEvents = 'none';
+            });
+            document.getElementById('diceDisplay').textContent = DICE_UNICODE[num - 1];
+            document.getElementById('diceResult').classList.remove('hidden');
+            document.getElementById('diceResult').textContent = `您摇出了 ${num} 点，已提交给控制台`;
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'player_choice',
+                    game_id: gameId,
+                    data: {
+                        choice: 'dice_' + num,
+                        table: tableNumber
+                    }
+                }));
+            }
+        }
+
+        function applyTable(table) {
+            tableNumber = String(table).trim();
+            if (!tableNumber) return;
+            document.getElementById('tableInput').value = tableNumber;
+            document.getElementById('manualTableInput').value = tableNumber;
+            document.getElementById('tableDisplay').textContent = tableNumber;
+            document.getElementById('tableResult').classList.remove('hidden');
+            updateSignupButton();
+            updateStepGuide();
+        }
+
+        function applyManualTable() {
+            const val = document.getElementById('manualTableInput').value.trim();
+            if (!val) {
+                alert('请填写桌号，例如 1');
+                return;
+            }
+            applyTable(val);
+        }
+
+        function requestGameInfo() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            const payload = { type: 'get_game_info' };
+            if (machineSN) {
+                payload.data = { machine_sn: machineSN };
+            }
+            ws.send(JSON.stringify(payload));
+        }
+
+        function signup() {
+            if (!gameId) { alert('游戏信息未加载，请刷新页面'); return; }
+            if (gameStatus !== 1) {
+                alert('当前不在报名阶段，请让 DJ 先点击「报名计时」');
+                return;
+            }
+            const table = document.getElementById('tableInput').value.trim();
+            const gender = document.getElementById('genderSelect').value;
+            if (!table) { alert('请先获取或填写桌号'); return; }
+            if (!gender) { alert('请选择性别'); return; }
+
+            ws.send(JSON.stringify({
+                type: 'signup',
+                game_id: gameId,
+                data: { table, gender }
+            }));
+        }
+
+        function getTableByMachine() {
+            const val = document.getElementById('machineInput').value.trim();
+            if (!val) { alert('请输入机器编号，或直接在下方手动填写桌号'); return; }
+            machineSN = val;
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                alert('WebSocket 未连接，请稍后再试');
+                return;
+            }
+            requestGameInfo();
+        }
+
+        function leaveGame() {
+            if (ws) ws.close();
+            alert('已断开连接');
+        }
+
+        function updateConnectionStatus(ok) {
+            const el = document.getElementById('connectionStatus');
+            el.textContent = ok ? '已连接' : '连接断开';
+            el.className = 'connection-status ' + (ok ? 'connected' : 'disconnected');
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initWebSocket();
+            updateStepGuide();
+            updateSignupButton();
+
+            const params = new URLSearchParams(window.location.search);
+            const sn = params.get('machine_sn');
+            const tableParam = params.get('table');
+            if (sn) {
+                document.getElementById('machineInput').value = sn;
+                machineSN = sn;
+            }
+            if (tableParam) {
+                document.getElementById('manualTableInput').value = tableParam;
+                applyTable(tableParam);
+            }
+
+            document.getElementById('machineInput').addEventListener('keypress', e => {
+                if (e.key === 'Enter') getTableByMachine();
+            });
+            document.getElementById('manualTableInput').addEventListener('keypress', e => {
+                if (e.key === 'Enter') applyManualTable();
+            });
+        });
+    </script>
+</body>
+</html>

@@ -68,6 +68,7 @@ type GameStatus struct {
 	Content     string `json:"content"`
 	SignupCount int    `json:"signup_count"`
 	StartTime   string `json:"start_time"`
+	SignupEndAt int    `json:"signup_end_at,omitempty"`
 }
 
 // 报名信息
@@ -336,6 +337,9 @@ func (c *Client) pushCurrentMatchState(gameID int) {
 		SignupCount: len(signups),
 		StartTime:   remainingTime,
 	}
+	if gameInfo.Status == 1 && gameInfo.StartTime > 0 {
+		gameInfoWithSignup.SignupEndAt = gameInfo.StartTime
+	}
 
 	gameInfoMessage := Message{
 		Type:   "game_info",
@@ -512,16 +516,8 @@ func (c *Client) handleStartSignup(message Message) {
 			if topicInfo, err := getGameTopicByID(gameInfo.TopicID); err != nil {
 				log.Printf("获取游戏主题失败: %v", err)
 			} else if topicInfo != nil && topicInfo.Content != "" {
-				var topicContent struct {
-					Participants string `json:"participants"`
-					Countdown    string `json:"countdown"`
-				}
-				if err := json.Unmarshal([]byte(topicInfo.Content), &topicContent); err != nil {
-					log.Printf("解析游戏主题内容失败: %v", err)
-				} else {
-					participants = topicContent.Participants
-					countdown = topicContent.Countdown
-				}
+				participants = extractParticipantsFromTopicContent(topicInfo.Content)
+				countdown = extractCountdownFromTopicContent(topicInfo.Content)
 			}
 			if gameContent, err := getGameContent(gameID); err != nil {
 				log.Printf("获取游戏内容失败: %v", err)
@@ -531,8 +527,13 @@ func (c *Client) handleStartSignup(message Message) {
 		}
 	}
 
-	// 计算结束时间：当前时间 + 3分钟
-	endTime := int(time.Now().Unix()) + 180 // 180秒 = 3分钟
+	// 计算结束时间：默认 3 分钟；自定义游戏按主题配置的倒计时
+	endTime := int(time.Now().Unix()) + 180
+	if isCustom && countdown != "" {
+		if sec := parseCountdownSeconds(countdown); sec > 0 {
+			endTime = int(time.Now().Unix()) + sec
+		}
+	}
 
 	// 清空报名池子
 	err := clearGameSignups(gameID)
@@ -555,23 +556,33 @@ func (c *Client) handleStartSignup(message Message) {
 
 	log.Printf("开始报名: 游戏ID=%d, 结束时间=%d", gameID, endTime)
 
+	// 通知控制台清空报名展示
+	c.Hub.notifySignupUpdate(gameID)
+
 	// 计算剩余时间（分钟:秒格式）
 	remainingTime := calculateRemainingTime(endTime)
 
 	// 广播给所有客户端
 	c.broadcastToClients(Message{
-		Type:   "game_status",
-		Data:   GameStatus{ID: gameID, GameType: 1, Status: 1, StartTime: remainingTime},
+		Type: "game_status",
+		Data: GameStatus{
+			ID:          gameID,
+			GameType:    1,
+			Status:      1,
+			StartTime:   remainingTime,
+			SignupEndAt: endTime,
+		},
 		GameID: gameID,
 	})
 
 	// 广播开始报名成功消息给所有控制台客户端
 	startSignupData := map[string]interface{}{
-		"game_id":    gameID,
-		"game_type":  1, // 默认游戏类型
-		"status":     1,
-		"start_time": remainingTime,
-		"message":    "报名已开始",
+		"game_id":       gameID,
+		"game_type":     1, // 默认游戏类型
+		"status":        1,
+		"start_time":    remainingTime,
+		"signup_end_at": endTime,
+		"message":       "报名已开始",
 	}
 
 	if isCustom {
@@ -579,9 +590,6 @@ func (c *Client) handleStartSignup(message Message) {
 			startSignupData["participants"] = participants
 		}
 		startSignupData["is_custom"] = true
-		if countdown != "" {
-			startSignupData["start_time"] = countdown
-		}
 		if prizeName != "" {
 			startSignupData["prize_name"] = prizeName
 		}
@@ -601,9 +609,8 @@ func (c *Client) handleStartSignup(message Message) {
 		if participants != "" {
 			customConfig["participants"] = participants
 		}
-		if countdown != "" {
-			customConfig["start_time"] = countdown
-		}
+		customConfig["start_time"] = remainingTime
+		customConfig["signup_end_at"] = endTime
 		if prizeName != "" {
 			customConfig["prize_name"] = prizeName
 		}
@@ -1018,6 +1025,37 @@ func (c *Client) handleGetGameInfo(message Message) {
 		"content":      game.Content,
 		"signup_count": len(signups),
 		"start_time":   remainingTime,
+	}
+	if game.Status == 1 && game.StartTime > 0 {
+		gameInfoData["signup_end_at"] = game.StartTime
+	}
+
+	if game.IsCustom == 1 && game.TopicID > 0 {
+		gameInfoData["is_custom"] = 1
+		gameInfoData["game_type"] = 5
+		if topicInfo, err := getGameTopicByID(game.TopicID); err != nil {
+			log.Printf("获取游戏主题失败: %v", err)
+		} else if topicInfo != nil {
+			if topicInfo.Name != "" {
+				gameInfoData["game_name"] = topicInfo.Name
+			}
+			if participants := extractParticipantsFromTopicContent(topicInfo.Content); participants != "" {
+				gameInfoData["participants"] = participants
+			}
+			if topicInfo.Content != "" {
+				var topicContent struct {
+					ScreenBgURL string `json:"screen_bg_url"`
+				}
+				if err := json.Unmarshal([]byte(topicInfo.Content), &topicContent); err != nil {
+					log.Printf("解析游戏主题内容失败: %v", err)
+				} else if topicContent.ScreenBgURL != "" {
+					gameInfoData["screen_bg_url"] = topicContent.ScreenBgURL
+				}
+			}
+		}
+	} else if game.IsCustom == 1 {
+		gameInfoData["is_custom"] = 1
+		gameInfoData["game_type"] = 5
 	}
 
 	// 如果获取到了桌号，添加到响应中
@@ -1660,6 +1698,43 @@ func (c *Client) handleStartGame(message Message) {
 	}
 	c.Hub.mutex.RUnlock()
 
+	// 自定义游戏（如 Lucky摇骰子）：通知被选中的上台桌号
+	if gameType == 5 && len(tableList) > 0 {
+		stageMessage := Message{
+			Type: "game_on_stage",
+			Data: map[string]interface{}{
+				"tablelist": tableList,
+				"message":   "您已上台，请摇骰子！",
+			},
+			GameID: gameID,
+		}
+		c.Hub.mutex.RLock()
+		for client := range c.Hub.clients {
+			if client.Type != GameClient {
+				continue
+			}
+			clientTable, exists := clientTableMap[client.ID]
+			if !exists {
+				continue
+			}
+			onStage := false
+			for _, t := range tableList {
+				t = strings.TrimPrefix(strings.TrimSpace(t), "桌")
+				if clientTable == t {
+					onStage = true
+					break
+				}
+			}
+			client.sendMessage(stageMessage)
+			if onStage {
+				log.Printf("通知上台客户端摇骰: %s (桌号: %s)", client.ID, clientTable)
+			} else {
+				log.Printf("通知观战客户端: %s (桌号: %s)", client.ID, clientTable)
+			}
+		}
+		c.Hub.mutex.RUnlock()
+	}
+
 	if gameType == 1 && gameID > 0 {
 		overlaySec := 8
 		if data, ok := message.Data.(map[string]interface{}); ok {
@@ -2263,6 +2338,16 @@ func main() {
 
 	r.GET("/game", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "game.html", gin.H{})
+	})
+
+	r.GET("/game/lucky", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "game_lucky.html", gin.H{})
+	})
+
+	r.GET("/game/lucky/:game_id", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "game_lucky.html", gin.H{
+			"game_id": c.Param("game_id"),
+		})
 	})
 
 	r.GET("/game/:game_id", func(c *gin.Context) {
