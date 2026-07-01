@@ -69,6 +69,7 @@ type GameStatus struct {
 	SignupCount int    `json:"signup_count"`
 	StartTime   string `json:"start_time"`
 	SignupEndAt int    `json:"signup_end_at,omitempty"`
+	IsCustom    int    `json:"is_custom,omitempty"`
 }
 
 // 报名信息
@@ -78,6 +79,33 @@ type SignupInfo struct {
 	Table    string `json:"table"`
 	ClientID int    `json:"client_id"`
 	Gender   string `json:"gender"`
+}
+
+const wsMaxMessageBytes = 64 * 1024
+
+// buildSignupUpdateList 按桌号去重后按报名 id 升序排列，保证大屏/DJ 展示顺序稳定
+func buildSignupUpdateList(signups []SignupRecord) []SignupInfo {
+	tableMap := make(map[string]SignupInfo)
+	for _, signup := range signups {
+		tableMap[signup.Table] = SignupInfo{
+			ID:       signup.ID,
+			GameID:   signup.GameID,
+			Table:    signup.Table,
+			ClientID: signup.ClientID,
+			Gender:   genderMap[signup.Table],
+		}
+	}
+
+	signupData := make([]SignupInfo, 0, len(tableMap))
+	for _, signupInfo := range tableMap {
+		signupData = append(signupData, signupInfo)
+	}
+
+	sort.Slice(signupData, func(i, j int) bool {
+		return signupData[i].ID < signupData[j].ID
+	})
+
+	return signupData
 }
 
 // HTTP报名通知请求结构
@@ -134,26 +162,7 @@ func (h *Hub) notifySignupUpdate(gameID int) {
 		return
 	}
 
-	// 使用map按桌号去重，保留每个桌号的最新报名记录
-	tableMap := make(map[string]SignupInfo)
-	for _, signup := range signups {
-		gender := genderMap[signup.Table] // 从内存中获取性别信息
-		signupInfo := SignupInfo{
-			ID:       signup.ID,
-			GameID:   signup.GameID,
-			Table:    signup.Table,
-			ClientID: signup.ClientID,
-			Gender:   gender,
-		}
-		// 由于数据库按id升序排列，后面的会覆盖前面的，保留最新记录
-		tableMap[signup.Table] = signupInfo
-	}
-
-	// 将map转换为数组
-	signupData := make([]SignupInfo, 0, len(tableMap))
-	for _, signupInfo := range tableMap {
-		signupData = append(signupData, signupInfo)
-	}
+	signupData := buildSignupUpdateList(signups)
 
 	log.Printf("报名列表去重（断连更新）: 原始数量=%d, 去重后数量=%d", len(signups), len(signupData))
 
@@ -243,7 +252,7 @@ func (c *Client) readPump() {
 		c.Conn.Close()
 	}()
 
-	c.Conn.SetReadLimit(512)
+	c.Conn.SetReadLimit(wsMaxMessageBytes)
 	c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	c.Conn.SetPongHandler(func(string) error {
 		c.Conn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -421,9 +430,82 @@ func (c *Client) handleMessage(message Message) {
 	}
 }
 
+func (c *Client) sendSignupRejected(reason string) {
+	c.sendMessage(Message{
+		Type: "signup_failed",
+		Data: map[string]interface{}{
+			"message": reason,
+		},
+		GameID: int(c.GameID),
+	})
+}
+
+func (h *Hub) closeSignupIfExpired(gameID int) (*GameRecord, bool) {
+	game, err := getGameInfo(gameID)
+	if err != nil {
+		return nil, false
+	}
+	if game.Status != 1 || !signupEndTimePassed(game.StartTime) {
+		return game, false
+	}
+
+	if err := updateGameStatus(gameID, 2); err != nil {
+		log.Printf("自动结束报名失败: gameID=%d err=%v", gameID, err)
+		return game, false
+	}
+
+	game.Status = 2
+	log.Printf("报名倒计时已结束，自动关闭报名: gameID=%d", gameID)
+
+	broadcastGameType := 1
+	if game.IsCustom == 1 {
+		broadcastGameType = 5
+	}
+	statusPayload := GameStatus{
+		ID:       gameID,
+		GameType: broadcastGameType,
+		Status:   2,
+	}
+	if game.IsCustom == 1 {
+		statusPayload.IsCustom = 1
+	}
+
+	msgBytes, _ := json.Marshal(Message{
+		Type:   "game_status",
+		Data:   statusPayload,
+		GameID: gameID,
+	})
+
+	h.mutex.RLock()
+	for client := range h.clients {
+		select {
+		case client.Send <- msgBytes:
+		default:
+		}
+	}
+	h.mutex.RUnlock()
+
+	return game, true
+}
+
 // 处理报名
 func (c *Client) handleSignup(message Message) {
 	if c.Type != GameClient {
+		return
+	}
+
+	gameID := int(c.GameID)
+	if gameID == 0 {
+		log.Printf("无效的游戏ID: %d", gameID)
+		return
+	}
+
+	game, _ := c.Hub.closeSignupIfExpired(gameID)
+	if game == nil {
+		game, _ = getGameInfo(gameID)
+	}
+	if game == nil || game.Status != 1 || signupEndTimePassed(game.StartTime) {
+		c.sendSignupRejected("报名时间已过，无法报名")
 		return
 	}
 
@@ -453,13 +535,6 @@ func (c *Client) handleSignup(message Message) {
 
 	// 生成客户端ID
 	clientID := int(time.Now().UnixNano() % 1000000)
-
-	// 保存报名信息到数据库
-	gameID := int(c.GameID)
-	if gameID == 0 {
-		log.Printf("无效的游戏ID: %d", gameID)
-		return
-	}
 
 	err := addSignupRecord(gameID, table, clientID)
 	if err != nil {
@@ -562,23 +637,33 @@ func (c *Client) handleStartSignup(message Message) {
 	// 计算剩余时间（分钟:秒格式）
 	remainingTime := calculateRemainingTime(endTime)
 
+	broadcastGameType := 1
+	if isCustom {
+		broadcastGameType = 5
+	}
+
+	broadcastStatus := GameStatus{
+		ID:          gameID,
+		GameType:    broadcastGameType,
+		Status:      1,
+		StartTime:   remainingTime,
+		SignupEndAt: endTime,
+	}
+	if isCustom {
+		broadcastStatus.IsCustom = 1
+	}
+
 	// 广播给所有客户端
 	c.broadcastToClients(Message{
-		Type: "game_status",
-		Data: GameStatus{
-			ID:          gameID,
-			GameType:    1,
-			Status:      1,
-			StartTime:   remainingTime,
-			SignupEndAt: endTime,
-		},
+		Type:   "game_status",
+		Data:   broadcastStatus,
 		GameID: gameID,
 	})
 
 	// 广播开始报名成功消息给所有控制台客户端
 	startSignupData := map[string]interface{}{
 		"game_id":       gameID,
-		"game_type":     1, // 默认游戏类型
+		"game_type":     broadcastGameType,
 		"status":        1,
 		"start_time":    remainingTime,
 		"signup_end_at": endTime,
@@ -990,6 +1075,14 @@ func (c *Client) handleGetGameInfo(message Message) {
 	if err != nil {
 		log.Printf("获取游戏信息失败: %v", err)
 		return
+	}
+
+	if _, closed := c.Hub.closeSignupIfExpired(gameID); closed {
+		game, err = getGameInfo(gameID)
+		if err != nil {
+			log.Printf("获取游戏信息失败: %v", err)
+			return
+		}
 	}
 
 	// 获取报名数量
@@ -1612,10 +1705,10 @@ func (c *Client) handleStartGame(message Message) {
 		}
 		// 记录 DJ 上报的数据
 		if gameType == 5 {
-            if rawData, exists := data["tablelist"]; exists {
-                customData = rawData
-                tableList = extractTableList(rawData)
-            }
+			if rawData, exists := data["tablelist"]; exists {
+				customData = rawData
+				tableList = extractTableList(rawData)
+			}
 		}
 	}
 
@@ -1938,26 +2031,7 @@ func (c *Client) notifyControlUpdate() {
 		return
 	}
 
-	// 使用map按桌号去重，保留每个桌号的最新报名记录
-	tableMap := make(map[string]SignupInfo)
-	for _, signup := range signups {
-		gender := genderMap[signup.Table] // 从内存中获取性别信息
-		signupInfo := SignupInfo{
-			ID:       signup.ID,
-			GameID:   signup.GameID,
-			Table:    signup.Table,
-			ClientID: signup.ClientID,
-			Gender:   gender,
-		}
-		// 由于数据库按id升序排列，后面的会覆盖前面的，保留最新记录
-		tableMap[signup.Table] = signupInfo
-	}
-
-	// 将map转换为数组
-	signupData := make([]SignupInfo, 0, len(tableMap))
-	for _, signupInfo := range tableMap {
-		signupData = append(signupData, signupInfo)
-	}
+	signupData := buildSignupUpdateList(signups)
 
 	log.Printf("报名列表去重: 原始数量=%d, 去重后数量=%d", len(signups), len(signupData))
 

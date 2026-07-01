@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+func signupEndTimePassed(endTime int) bool {
+	return endTime > 0 && int(time.Now().Unix()) >= endTime
+}
+
 func calculateRemainingTime(endTime int) string {
 	now := int(time.Now().Unix())
 	remaining := endTime - now

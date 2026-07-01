@@ -389,6 +389,9 @@
                 case 'signup_success':
                     handleSignupSuccess(message.data);
                     break;
+                case 'signup_failed':
+                    handleSignupFailed(message.data);
+                    break;
                 case 'custom_signup_config':
                     showCustomConfig(message.data);
                     break;
@@ -457,6 +460,13 @@
             if (data.prize_name) document.getElementById('prizeName').textContent = data.prize_name;
             if (data.participants) document.getElementById('participants').textContent = data.participants + ' 人';
             if (data.start_time) document.getElementById('countdown').textContent = data.start_time;
+        }
+
+        function handleSignupFailed(data) {
+            const msg = (data && data.message) || '报名时间已过，无法报名';
+            alert(msg);
+            gameStatus = 2;
+            refreshUIByStatus(2);
         }
 
         function handleSignupSuccess(data) {
